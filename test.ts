@@ -1,0 +1,10 @@
+matrixCore.initNeoPixel(DigitalPin.P0, MatrixLayout.Grid2x2)
+const id = matrixSprites.createSprite(5, 5, matrixSprites.SMILEY_HEX)
+matrixSprites.addObject(id, 8, 8, 1, 1)
+basic.forever(function () {
+    matrixCore.clear()
+    matrixSprites.updateObjects()
+    matrixSprites.drawObjects()
+    matrixCore.updateDisplay()
+    basic.pause(70)
+})
