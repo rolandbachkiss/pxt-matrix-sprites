@@ -324,9 +324,9 @@ namespace matrixSprites {
     let _dotBounceWalls: boolean[] = []
     let _dotBounceDots: boolean[] = []
     let _dotVisible: boolean[] = []
-    // Trail buffers: flat arrays of (x,y) pairs as Buffer, sentinel 255 = empty
+    // Trail buffers: flat arrays of (x,y) pairs, sentinel -1 = empty
     // Pre-allocated to MAX_TRAIL_SLOTS × 2 per dot
-    let _dotTrail: Buffer[] = []
+    let _dotTrail: number[][] = []
     let _dotCount = 0
 
     /**
@@ -377,9 +377,12 @@ namespace matrixSprites {
         _dotBounceWalls[id] = false
         _dotBounceDots[id] = false
         _dotVisible[id] = true
-        // Pre-allocate trail buffer with sentinel values (255 = empty)
-        _dotTrail[id] = pins.createBuffer(trailLength * 2)
-        _dotTrail[id].fill(255)
+        // Pre-allocate trail buffer with sentinel values (-1 = empty)
+        const trailBuf: number[] = []
+        for (let ti = 0; ti < trailLength * 2; ti++) {
+            trailBuf[ti] = -1
+        }
+        _dotTrail[id] = trailBuf
         _dotCount++
         return id
     }
@@ -451,7 +454,11 @@ namespace matrixSprites {
         _dotY[id] = y
         // Clear trail buffer
         const tb = _dotTrail[id]
-        if (tb) tb.fill(255)
+        if (tb) {
+            for (let ti = 0; ti < tb.length; ti++) {
+                tb[ti] = -1
+            }
+        }
     }
 
     /**
@@ -490,7 +497,7 @@ namespace matrixSprites {
             for (let ti = 0; ti < tlen; ti++) {
                 const tx = tb[ti * 2]
                 const ty = tb[ti * 2 + 1]
-                if (tx === 255) continue
+                if (tx < 0) continue
                 matrixCore.decayRegion(tx, ty, 1, 1, 0, 0, 0, 0, decay)
             }
         }
