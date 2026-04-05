@@ -388,8 +388,6 @@ function sqAdvance(steps: number, step: number,
     }
     return s
 }
-    return s
-}
 
 const posA: number[] = [0, 0]
 const posB: number[] = [0, 0]

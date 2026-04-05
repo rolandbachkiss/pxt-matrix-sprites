@@ -12,7 +12,7 @@
  */
 
 //% color="#9400D3" weight=80 icon="\uf11b"
-//% groups='["Sprites","Objects"]'
+//% groups='["Sprites","Objects","Trail Dots"]'
 namespace matrixSprites {
 
     // -----------------------------------------------------------------------
@@ -301,6 +301,269 @@ namespace matrixSprites {
     export function setDecay(id: number, decay: number): void {
         if (id < 0 || id >= _objCount) return
         _objDecay[id] = decay
+    }
+
+    // -----------------------------------------------------------------------
+    // Trail Dots — single-pixel animated dots with configurable trails
+    // -----------------------------------------------------------------------
+
+    const MAX_TRAIL_DOTS = 8
+    const MAX_TRAIL_SLOTS = 16   // max trail length per dot
+
+    // Per-dot state arrays
+    let _dotX: number[] = []
+    let _dotY: number[] = []
+    let _dotVX: number[] = []            // direction: -1, 0, or 1
+    let _dotVY: number[] = []
+    let _dotSpeed: number[] = []         // pixels per frame (0 = stopped)
+    let _dotR: number[] = []
+    let _dotG: number[] = []
+    let _dotB: number[] = []
+    let _dotTrailLen: number[] = []
+    let _dotDecay: number[] = []
+    let _dotBounceWalls: boolean[] = []
+    let _dotBounceDots: boolean[] = []
+    let _dotVisible: boolean[] = []
+    // Trail buffers: flat arrays of (x,y) pairs, sentinel -1 = empty
+    // Pre-allocated to MAX_TRAIL_SLOTS × 2 per dot
+    let _dotTrail: number[][] = []
+    // Scratch position array (reused to avoid allocation)
+    const _dotPos: number[] = [0, 0]
+    let _dotCount = 0
+
+    /**
+     * Create a trail dot — a single pixel that moves with a fading trail.
+     * Returns the dot ID (0-based).
+     * @param x starting x position
+     * @param y starting y position
+     * @param vx horizontal direction: -1 (left), 0 (still), 1 (right)
+     * @param vy vertical direction: -1 (up), 0 (still), 1 (down)
+     * @param speed pixels moved per update tick (0 = stopped, 1–4 recommended)
+     * @param r red component (0–255)
+     * @param g green component (0–255)
+     * @param b blue component (0–255)
+     * @param trailLength number of trail slots (2–16, more = longer visible trail)
+     * @param decay decay factor 0–255 (30 = short trail, 100 = medium, 160 = long)
+     */
+    //% blockId=matrix_sprites_create_trail_dot
+    //% block="create trail dot at x $x y $y dir vx $vx vy $vy speed $speed color red $r green $g blue $b trail $trailLength decay $decay"
+    //% vx.min=-1 vx.max=1 vx.defl=1
+    //% vy.min=-1 vy.max=1 vy.defl=0
+    //% speed.min=0 speed.max=8 speed.defl=1
+    //% r.min=0 r.max=255 r.defl=255
+    //% g.min=0 g.max=255 g.defl=255
+    //% b.min=0 b.max=255 b.defl=255
+    //% trailLength.min=1 trailLength.max=16 trailLength.defl=4
+    //% decay.min=0 decay.max=255 decay.defl=100
+    //% group="Trail Dots" weight=100
+    export function createTrailDot(
+        x: number, y: number,
+        vx: number, vy: number,
+        speed: number,
+        r: number, g: number, b: number,
+        trailLength: number,
+        decay: number
+    ): number {
+        if (_dotCount >= MAX_TRAIL_DOTS) return -1
+        const id = _dotCount
+        _dotX[id] = x
+        _dotY[id] = y
+        _dotVX[id] = vx
+        _dotVY[id] = vy
+        _dotSpeed[id] = speed
+        _dotR[id] = r
+        _dotG[id] = g
+        _dotB[id] = b
+        _dotTrailLen[id] = trailLength
+        _dotDecay[id] = decay
+        _dotBounceWalls[id] = false
+        _dotBounceDots[id] = false
+        _dotVisible[id] = true
+        // Pre-allocate trail buffer with sentinel values
+        _dotTrail[id] = pins.createBuffer(trailLength * 2)
+        _dotTrail[id].fill(-1)
+        _dotCount++
+        return id
+    }
+
+    /**
+     * Enable or disable wall bouncing for a trail dot.
+     * When enabled, the dot reflects off screen edges.
+     */
+    //% blockId=matrix_sprites_dot_bounce_walls
+    //% block="set trail dot $id bounce from walls $on"
+    //% group="Trail Dots" weight=90
+    export function setTrailDotBounceWalls(id: number, on: boolean): void {
+        if (id < 0 || id >= _dotCount) return
+        _dotBounceWalls[id] = on
+    }
+
+    /**
+     * Enable or disable dot-to-dot bouncing for a trail dot.
+     * When enabled, the dot reflects off other trail dots on collision.
+     */
+    //% blockId=matrix_sprites_dot_bounce_dots
+    //% block="set trail dot $id bounce from other dots $on"
+    //% group="Trail Dots" weight=89
+    export function setTrailDotBounceDots(id: number, on: boolean): void {
+        if (id < 0 || id >= _dotCount) return
+        _dotBounceDots[id] = on
+    }
+
+    /**
+     * Set the speed of a trail dot (pixels per update tick).
+     * 0 = stopped (for queueing, traffic lights, etc).
+     * 1–4 = recommended range for smooth motion.
+     */
+    //% blockId=matrix_sprites_dot_speed
+    //% block="set trail dot $id speed $speed"
+    //% speed.min=0 speed.max=8 speed.defl=1
+    //% group="Trail Dots" weight=88
+    export function setTrailDotSpeed(id: number, speed: number): void {
+        if (id < 0 || id >= _dotCount) return
+        _dotSpeed[id] = speed
+    }
+
+    /**
+     * Set the direction of a trail dot.
+     * @param vx horizontal direction: -1 (left), 0, 1 (right)
+     * @param vy vertical direction: -1 (up), 0, 1 (down)
+     */
+    //% blockId=matrix_sprites_dot_direction
+    //% block="set trail dot $id direction vx $vx vy $vy"
+    //% vx.min=-1 vx.max=1 vx.defl=1
+    //% vy.min=-1 vy.max=1 vy.defl=0
+    //% group="Trail Dots" weight=87
+    export function setTrailDotDirection(id: number, vx: number, vy: number): void {
+        if (id < 0 || id >= _dotCount) return
+        _dotVX[id] = vx
+        _dotVY[id] = vy
+    }
+
+    /**
+     * Teleport a trail dot to a new position immediately.
+     * Clears the trail buffer so no stale trail is left behind.
+     */
+    //% blockId=matrix_sprites_dot_position
+    //% block="set trail dot $id position x $x y $y"
+    //% group="Trail Dots" weight=86
+    export function setTrailDotPosition(id: number, x: number, y: number): void {
+        if (id < 0 || id >= _dotCount) return
+        _dotX[id] = x
+        _dotY[id] = y
+        // Clear trail buffer
+        const tb = _dotTrail[id]
+        if (tb) tb.fill(-1)
+    }
+
+    /**
+     * Show or hide a trail dot without removing it.
+     */
+    //% blockId=matrix_sprites_dot_visible
+    //% block="set trail dot $id visible $v"
+    //% group="Trail Dots" weight=85
+    export function setTrailDotVisible(id: number, v: boolean): void {
+        if (id < 0 || id >= _dotCount) return
+        _dotVisible[id] = v
+    }
+
+    /**
+     * Update all visible trail dots: decay trails, advance positions,
+     * handle bouncing, and draw every pixel with a brightness gradient.
+     * Call this once per frame before updateDisplay().
+     *
+     * Fast dots (speed > 1) draw every pixel they pass through — no gaps.
+     * A brightness gradient from dim (where the dot came from) to bright
+     * (current position) creates a smooth streak effect.
+     */
+    //% blockId=matrix_sprites_update_trail_dots
+    //% block="update trail dots"
+    //% group="Trail Dots" weight=80
+    export function updateTrailDots(): void {
+        const W = matrixCore.width()
+        const H = matrixCore.height()
+
+        // Phase 1: decay all trail slots for all dots
+        for (let i = 0; i < _dotCount; i++) {
+            if (!_dotVisible[i]) continue
+            const tb = _dotTrail[i]
+            const tlen = _dotTrailLen[i]
+            const decay = _dotDecay[i]
+            for (let ti = 0; ti < tlen; ti++) {
+                const tx = tb[ti * 2]
+                const ty = tb[ti * 2 + 1]
+                if (tx < 0) continue
+                matrixCore.decayRegion(tx, ty, 1, 1, 0, 0, 0, 0, decay)
+            }
+        }
+
+        // Phase 2: advance each dot, handle bouncing, draw
+        for (let i = 0; i < _dotCount; i++) {
+            if (!_dotVisible[i]) continue
+            const spd = _dotSpeed[i]
+            if (spd <= 0) continue  // stopped — trail still decays from phase 1
+
+            const vx = _dotVX[i]
+            const vy = _dotVY[i]
+            const tb = _dotTrail[i]
+            const tlen = _dotTrailLen[i]
+            const r = _dotR[i]
+            const g = _dotG[i]
+            const b = _dotB[i]
+            let cx = _dotX[i]
+            let cy = _dotY[i]
+
+            // Advance spd pixels, drawing each with gradient
+            for (let di = 0; di < spd; di++) {
+                // Push current position into trail
+                for (let ti = tlen - 1; ti > 0; ti--) {
+                    tb[ti * 2]     = tb[(ti - 1) * 2]
+                    tb[ti * 2 + 1] = tb[(ti - 1) * 2 + 1]
+                }
+                tb[0] = cx
+                tb[1] = cy
+
+                // Move one pixel
+                cx += vx
+                cy += vy
+
+                // Wall bouncing
+                if (_dotBounceWalls[i]) {
+                    if (cx < 0)         { cx = 0;    _dotVX[i] = -_dotVX[i] }
+                    else if (cx >= W)   { cx = W - 1; _dotVX[i] = -_dotVX[i] }
+                    if (cy < 0)         { cy = 0;    _dotVY[i] = -_dotVY[i] }
+                    else if (cy >= H)   { cy = H - 1; _dotVY[i] = -_dotVY[i] }
+                }
+
+                // Brightness gradient: first pixel dimmest, last pixel brightest
+                const frac = di + 1
+                const pr = Math.idiv(r * frac, spd)
+                const pg = Math.idiv(g * frac, spd)
+                const pb = Math.idiv(b * frac, spd)
+                matrixCore.setPixelXY(cx, cy, pr, pg, pb)
+            }
+
+            // Dot-to-dot collision (check against all other dots)
+            if (_dotBounceDots[i]) {
+                for (let j = 0; j < _dotCount; j++) {
+                    if (i === j || !_dotVisible[j] || !_dotBounceDots[j]) continue
+                    if (cx === _dotX[j] && cy === _dotY[j]) {
+                        // Collision — reflect both dots
+                        _dotVX[i] = -_dotVX[i]
+                        _dotVY[i] = -_dotVY[i]
+                        _dotVX[j] = -_dotVX[j]
+                        _dotVY[j] = -_dotVY[j]
+                        // Step back to avoid overlap
+                        cx -= vx
+                        cy -= vy
+                        break
+                    }
+                }
+            }
+
+            _dotX[i] = cx
+            _dotY[i] = cy
+        }
     }
 
 } // namespace matrixSprites
