@@ -365,6 +365,9 @@ function trailDecaySprite(trail: number[], len: number, sw: number, sh: number,
 // Advance a dot N steps along a square path, pushing each intermediate position
 // into the trail buffer AND drawing each pixel. This prevents gaps that would
 // appear if only the destination were drawn.
+// Draws a brightness gradient: the first pixel (where the dot came from) is
+// dimmest, the last pixel (current position) is brightest. This creates a
+// smooth fading trail even at high speeds.
 // Must be called while setBrightness is at the desired dot brightness.
 // Returns the new step counter.
 function sqAdvance(steps: number, step: number,
@@ -375,9 +378,16 @@ function sqAdvance(steps: number, step: number,
     for (let di = 0; di < steps; di++) {
         sqWalk(s, x0, y0, w, h, posOut)
         trailPush(trail, trailLen, posOut[0], posOut[1])
-        matrixCore.setPixelXY(posOut[0], posOut[1], r, g, b)
+        // Brightness gradient: pixel 0 = dimmest, pixel steps-1 = full
+        const frac = di + 1  // 1..steps
+        const br = Math.idiv(r * frac, steps)
+        const bg = Math.idiv(g * frac, steps)
+        const bb = Math.idiv(b * frac, steps)
+        matrixCore.setPixelXY(posOut[0], posOut[1], br, bg, bb)
         s = (s + 1) % perim
     }
+    return s
+}
     return s
 }
 
