@@ -141,8 +141,93 @@ const s2 = matrixSprites.addObject(smiley, 20, 2, -1, 1)
 const s3 = matrixSprites.addObject(ship, 2, 20, 1, -1)
 const s4 = matrixSprites.addObject(ship, 20, 20, -1, -1)
 
-basic.forever(function () {
+for (let i = 0; i < 60; i++) {
     matrixCore.clear()
+    matrixSprites.updateObjects()
+    matrixSprites.drawObjects()
+    matrixCore.updateDisplay()
+    basic.pause(70)
+}
+basic.pause(500)
+
+// ---------------------------------------------------------------------------
+// Test 9: Trail decay — addObject with decay param (long trail)
+// ---------------------------------------------------------------------------
+// A single smiley crosses the screen horizontally with a comet-like trail.
+// DO NOT call matrixCore.clear() inside the loop — trail accumulates in the buffer.
+matrixCore.clear()
+matrixCore.updateDisplay()
+
+const trailObj = matrixSprites.addObject(smiley, 0, 13, 1, 0, 160)
+// factor 160/256 ≈ 62.5% each frame → ~8-frame visible tail
+
+for (let i = 0; i < 50; i++) {
+    matrixSprites.updateObjects()   // moves + decays old bbox
+    matrixSprites.drawObjects()     // draws new position
+    matrixCore.updateDisplay()
+    basic.pause(60)
+}
+basic.pause(800)
+matrixCore.clear()
+matrixCore.updateDisplay()
+
+// ---------------------------------------------------------------------------
+// Test 10: setDecay — change decay factor mid-flight
+// ---------------------------------------------------------------------------
+// Start with no trail, then switch to a heavy trail mid-way across the screen.
+matrixCore.clear()
+matrixCore.updateDisplay()
+
+const dynObj = matrixSprites.addObject(smiley, 0, 20, 1, 0, 255)   // no trail initially
+
+for (let i = 0; i < 14; i++) {
+    matrixSprites.updateObjects()
+    matrixSprites.drawObjects()
+    matrixCore.updateDisplay()
+    basic.pause(60)
+}
+
+// Enable long trail halfway across
+matrixSprites.setDecay(dynObj, 128)
+
+for (let i = 0; i < 20; i++) {
+    matrixSprites.updateObjects()
+    matrixSprites.drawObjects()
+    matrixCore.updateDisplay()
+    basic.pause(60)
+}
+basic.pause(800)
+matrixCore.clear()
+matrixCore.updateDisplay()
+
+// ---------------------------------------------------------------------------
+// Test 11: Two objects with different decay factors (trail length comparison)
+// ---------------------------------------------------------------------------
+// Top object: short trail (decay=210).  Bottom object: long trail (decay=128).
+matrixCore.clear()
+matrixCore.updateDisplay()
+
+const shortTrail = matrixSprites.addObject(ship, 0, 4,  1, 0, 210)
+const longTrail  = matrixSprites.addObject(ship, 0, 22, 1, 0, 128)
+
+for (let i = 0; i < 50; i++) {
+    matrixSprites.updateObjects()
+    matrixSprites.drawObjects()
+    matrixCore.updateDisplay()
+    basic.pause(60)
+}
+basic.pause(1000)
+
+// ---------------------------------------------------------------------------
+// Test 12: Bouncing with trails (final forever loop)
+// ---------------------------------------------------------------------------
+matrixCore.clear()
+matrixCore.updateDisplay()
+
+const tb1 = matrixSprites.addObject(smiley, 2, 2, 1, 1, 190)
+const tb2 = matrixSprites.addObject(ship, 20, 20, -1, -1, 160)
+
+basic.forever(function () {
     matrixSprites.updateObjects()
     matrixSprites.drawObjects()
     matrixCore.updateDisplay()
