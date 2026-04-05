@@ -285,6 +285,14 @@ const SA_PERIM = (SA_W - 1 + SA_H - 1) * 2   // 66
 const SB_X0 = 10; const SB_Y0 = 3;  const SB_W = 10; const SB_H = 20
 const SB_PERIM = (SB_W - 1 + SB_H - 1) * 2   // 56
 
+// Square C (top-right): 9 wide × 14 tall, x0=23, y0=0, perimeter = 2*(8+13) = 42
+const SC_X0 = 23; const SC_Y0 = 0;  const SC_W = 9;  const SC_H = 14
+const SC_PERIM = (SC_W - 1 + SC_H - 1) * 2   // 42
+
+// Square E (bottom-left): 10 wide × 14 tall, x0=0, y0=18, perimeter = 2*(9+13) = 44
+const SE_X0 = 0;  const SE_Y0 = 18; const SE_W = 10; const SE_H = 14
+const SE_PERIM = (SE_W - 1 + SE_H - 1) * 2   // 44
+
 // ── Trail buffers ────────────────────────────────────────────────────────────
 // Each trail buffer holds the last N (x,y) pairs the dot visited.
 // Every frame every slot is decayed so the pixel truly dies after N frames.
@@ -301,9 +309,24 @@ const TRAIL_B_LEN = 4
 const DECAY_A = 30
 const DECAY_B = 100
 
+// Dot C (green, 2 px/frame): 4 slots (2 frames of history), factor 30
+const TRAIL_C_LEN = 4
+
+// Dot E (orange, 4 px/frame): 8 slots (2 frames of history), factor 30
+const TRAIL_E_LEN = 8
+const DECAY_E = 30
+
 // Flat arrays: trailA[i*2]=x, trailA[i*2+1]=y; sentinel (-1,-1) = not yet used
 const trailA: number[] = [-1, -1, -1, -1]               // 2 slots × 2
 const trailB: number[] = [-1, -1, -1, -1, -1, -1, -1, -1]  // 4 slots × 2
+
+// Dot C: 4 slots × 2
+const trailC: number[] = [-1, -1, -1, -1, -1, -1, -1, -1]
+// Dot E: 8 slots × 2
+const trailE: number[] = [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
+
+let stepC = 0   // step counter for dot C (green, 2 px/frame)
+let stepE = 0   // step counter for dot E (orange, 4 px/frame)
 
 // Rotate a trail buffer: push new (nx,ny) at front, drop oldest.
 function trailPush(trail: number[], len: number, nx: number, ny: number): void {
@@ -339,8 +362,29 @@ function trailDecaySprite(trail: number[], len: number, sw: number, sh: number,
     }
 }
 
+// Advance a dot N steps along a square path, pushing each intermediate position
+// into the trail buffer AND drawing each pixel. This prevents gaps that would
+// appear if only the destination were drawn.
+// Must be called while setBrightness is at the desired dot brightness.
+// Returns the new step counter.
+function sqAdvance(steps: number, step: number,
+                   x0: number, y0: number, w: number, h: number,
+                   perim: number, trail: number[], trailLen: number,
+                   posOut: number[], r: number, g: number, b: number): number {
+    let s = step
+    for (let di = 0; di < steps; di++) {
+        sqWalk(s, x0, y0, w, h, posOut)
+        trailPush(trail, trailLen, posOut[0], posOut[1])
+        matrixCore.setPixelXY(posOut[0], posOut[1], r, g, b)
+        s = (s + 1) % perim
+    }
+    return s
+}
+
 const posA: number[] = [0, 0]
 const posB: number[] = [0, 0]
+const posC: number[] = [0, 0]
+const posE: number[] = [0, 0]
 
 // ── Test 12: Dot A alone, 3 laps ─────────────────────────────────────────────
 // Cyan dot on Square A (20×15). Moves every 2nd frame (half speed).
@@ -431,11 +475,16 @@ basic.pause(600)
 matrixCore.clear()
 matrixCore.updateDisplay()
 
-// ── Test 15: Both dots + two sprites (combined forever loop) ──────────────────
-// Dot A (slow, red):    Square A, 1-px trail
-// Dot B (fast, yellow): Square B, 3-px trail
+// ── Test 15: 4 dots + 2 sprites (combined forever loop) ───────────────────────
+// Dot A (slow, red):     Square A, 1 px/frame every 2nd frame, 1-px trail
+// Dot B (fast, yellow):  Square B, 1 px/frame, 3-px trail
+// Dot C (green):         Square C (top-right), 2 px/frame, 2-frame trail
+// Dot E (orange):        Square E (bottom-left), 4 px/frame, 2-frame trail
 // Disc C (blue):   bounces diagonally, 1-px trail (same decay as dot A)
 // Disc D (violet): walks Square D 15×15 from (5,10), 3-px trail (same as dot B)
+//
+// Fast dots (C, E) draw EVERY pixel they pass through — no gaps.
+// The trail decay makes the discrete frames look like a continuous streak.
 //
 // Sprites are blue/violet discs drawn at setBrightness(25) with color values
 // halved in the hex data (80 = 128 dec) so intensity ≈ idiv(128*25/255) = 12
@@ -472,7 +521,7 @@ const discViolet = matrixSprites.createSprite(5, 5, discVioletHex)
 
 // Disc C state — bouncing diagonally
 let cX = 8; let cY = 4; let cVX = 1; let cVY = 1
-const trailC: number[] = [-1, -1, -1, -1]   // 2 slots, decay 30 → 1-px trail
+const trailDiscC: number[] = [-1, -1, -1, -1]   // 2 slots, decay 30 → 1-px trail
 
 // Disc D state — walking Square D: 15×15 from (5,10)
 const SD_X0 = 5; const SD_Y0 = 10; const SD_W = 15; const SD_H = 15
@@ -480,14 +529,18 @@ const SD_PERIM = (SD_W - 1 + SD_H - 1) * 2   // 56
 let stepD = 0
 const posD: number[] = [0, 0]
 sqWalk(stepD, SD_X0, SD_Y0, SD_W, SD_H, posD)
-const trailD: number[] = [-1, -1, -1, -1, -1, -1, -1, -1]  // 4 slots, decay 100 → 3-px trail
+const trailDiscD: number[] = [-1, -1, -1, -1, -1, -1, -1, -1]  // 4 slots, decay 100 → 3-px trail
 
 // Reset dot trail buffers and step counters for the forever loop
 for (let ti = 0; ti < TRAIL_A_LEN * 2; ti++) trailA[ti] = -1
 for (let ti = 0; ti < TRAIL_B_LEN * 2; ti++) trailB[ti] = -1
-stepA = 0; stepB = 0; frameA = 0
+for (let ti = 0; ti < TRAIL_C_LEN * 2; ti++) trailC[ti] = -1
+for (let ti = 0; ti < TRAIL_E_LEN * 2; ti++) trailE[ti] = -1
+stepA = 0; stepB = 0; stepC = 0; stepE = 0; frameA = 0
 sqWalk(stepA, SA_X0, SA_Y0, SA_W, SA_H, posA)
 sqWalk(stepB, SB_X0, SB_Y0, SB_W, SB_H, posB)
+sqWalk(stepC, SC_X0, SC_Y0, SC_W, SC_H, posC)
+sqWalk(stepE, SE_X0, SE_Y0, SE_W, SE_H, posE)
 
 let frameD = 0   // disc D moves every frame (same speed as dot B)
 
@@ -495,9 +548,11 @@ basic.forever(function () {
     // ── Decay all trails ──
     trailDecay(trailA, TRAIL_A_LEN, DECAY_A)
     trailDecay(trailB, TRAIL_B_LEN, DECAY_B)
+    trailDecay(trailC, TRAIL_C_LEN, DECAY_A)
+    trailDecay(trailE, TRAIL_E_LEN, DECAY_E)
     // Sprites: decay the full 5×5 footprint per trail slot, skipping current position
-    trailDecaySprite(trailC, TRAIL_A_LEN, 5, 5, cX, cY, DECAY_A)
-    trailDecaySprite(trailD, TRAIL_B_LEN, 5, 5, posD[0], posD[1], DECAY_B)
+    trailDecaySprite(trailDiscC, TRAIL_A_LEN, 5, 5, cX, cY, DECAY_A)
+    trailDecaySprite(trailDiscD, TRAIL_B_LEN, 5, 5, posD[0], posD[1], DECAY_B)
 
     // ── Advance dot A (slow — every 2nd frame) ──
     if (frameA % 2 === 0) {
@@ -506,13 +561,13 @@ basic.forever(function () {
         sqWalk(stepA, SA_X0, SA_Y0, SA_W, SA_H, posA)
     }
 
-    // ── Advance dot B (fast — every frame) ──
+    // ── Advance dot B (1 px/frame) ──
     trailPush(trailB, TRAIL_B_LEN, posB[0], posB[1])
     stepB = (stepB + 1) % SB_PERIM
     sqWalk(stepB, SB_X0, SB_Y0, SB_W, SB_H, posB)
 
     // ── Advance disc C (bounce) ──
-    trailPush(trailC, TRAIL_A_LEN, cX, cY)
+    trailPush(trailDiscC, TRAIL_A_LEN, cX, cY)
     cX += cVX; cY += cVY
     if (cX < 0)         { cX = 0;  cVX = -cVX }
     else if (cX > 27)   { cX = 27; cVX = -cVX }   // 32-5=27: keep 5×5 disc inside
@@ -520,7 +575,7 @@ basic.forever(function () {
     else if (cY > 27)   { cY = 27; cVY = -cVY }
 
     // ── Advance disc D (square walk, every frame) ──
-    trailPush(trailD, TRAIL_B_LEN, posD[0], posD[1])
+    trailPush(trailDiscD, TRAIL_B_LEN, posD[0], posD[1])
     stepD = (stepD + 1) % SD_PERIM
     sqWalk(stepD, SD_X0, SD_Y0, SD_W, SD_H, posD)
 
@@ -533,8 +588,12 @@ basic.forever(function () {
 
     // Dots at higher brightness — temporarily boost, draw, restore
     matrixCore.setBrightness(40)
+    // Slow dots (A, B): 1 px/frame, draw individually
     matrixCore.setPixelXY(posA[0], posA[1], 255, 0, 0)     // red dot A (slow)
-    matrixCore.setPixelXY(posB[0], posB[1], 255, 220, 0)   // yellow dot B (fast)
+    matrixCore.setPixelXY(posB[0], posB[1], 255, 220, 0)   // yellow dot B
+    // Fast dots (C, E): walk and draw every pixel, no gaps
+    stepC = sqAdvance(2, stepC, SC_X0, SC_Y0, SC_W, SC_H, SC_PERIM, trailC, TRAIL_C_LEN, posC, 0, 255, 0)
+    stepE = sqAdvance(4, stepE, SE_X0, SE_Y0, SE_W, SE_H, SE_PERIM, trailE, TRAIL_E_LEN, posE, 255, 140, 0)
     matrixCore.setBrightness(25)   // back to sprite brightness for next decay cycle
 
     matrixCore.updateDisplay()
