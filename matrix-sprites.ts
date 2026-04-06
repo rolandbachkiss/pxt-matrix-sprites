@@ -33,12 +33,11 @@ namespace matrixSprites {
     // Object system — up to 16 objects
     // -----------------------------------------------------------------------
     const MAX_OBJECTS = 16
+    const OBJ_TRAIL_LEN = 16   // trail buffer slots per object
     let _objX: number[] = []
     let _objY: number[] = []
     let _objVX: number[] = []
     let _objVY: number[] = []
-    let _objPrevX: number[] = []         // position before last move (for trail)
-    let _objPrevY: number[] = []
     let _objSpriteId: number[] = []
     let _objFlipX: boolean[] = []
     let _objFlipY: boolean[] = []
@@ -46,6 +45,8 @@ namespace matrixSprites {
     // Decay factor per object: 0 = instant clear, 255 = no trail.
     // Stored as a Buffer (1 byte each) to avoid boxed number[] overhead.
     const _objDecay = pins.createBuffer(MAX_OBJECTS)
+    // Trail buffers: flat arrays of (x,y) pairs, sentinel -1 = empty
+    let _objTrail: number[][] = []
     let _objCount = 0
 
     // -----------------------------------------------------------------------
@@ -174,8 +175,6 @@ namespace matrixSprites {
         const id = _objCount
         _objX[id] = x
         _objY[id] = y
-        _objPrevX[id] = x
-        _objPrevY[id] = y
         _objVX[id] = vx
         _objVY[id] = vy
         _objSpriteId[id] = spriteId
@@ -183,6 +182,16 @@ namespace matrixSprites {
         _objFlipY[id] = false
         _objVisible[id] = true
         _objDecay[id] = (decay !== undefined) ? decay : 255
+        // Pre-allocate trail buffer with sentinel values (-1 = empty)
+        const trailBuf: number[] = []
+        for (let ti = 0; ti < OBJ_TRAIL_LEN * 2; ti++) {
+            trailBuf[ti] = -1
+        }
+        _objTrail[id] = trailBuf
+        _objCount++
+        return id
+    }
+        _objTrail[id] = trailBuf
         _objCount++
         return id
     }
@@ -203,6 +212,25 @@ namespace matrixSprites {
         const W = matrixCore.width()
         const H = matrixCore.height()
 
+        // Phase 1: decay trail buffer for all objects
+        for (let i = 0; i < _objCount; i++) {
+            if (!_objVisible[i]) continue
+            const decay = _objDecay[i]
+            if (decay >= 255) continue
+            const tb = _objTrail[i]
+            const sw = _spriteW[_objSpriteId[i]]
+            const sh = _spriteH[_objSpriteId[i]]
+            const nx = _objX[i]
+            const ny = _objY[i]
+            for (let ti = 0; ti < OBJ_TRAIL_LEN; ti++) {
+                const tx = tb[ti * 2]
+                const ty = tb[ti * 2 + 1]
+                if (tx < 0) continue
+                matrixCore.decayRegion(tx, ty, sw, sh, nx, ny, sw, sh, decay)
+            }
+        }
+
+        // Phase 2: advance positions with bounce
         for (let i = 0; i < _objCount; i++) {
             if (!_objVisible[i]) continue
 
@@ -221,19 +249,49 @@ namespace matrixSprites {
             if (ny < 0)        { ny = 0;        vy = -vy }
             else if (ny > H - sh) { ny = H - sh; vy = -vy }
 
-            // Apply trail decay to old bbox, skipping the new bbox overlap
-            const decay = _objDecay[i]
-            if (decay < 255) {
-                matrixCore.decayRegion(
-                    _objPrevX[i], _objPrevY[i], sw, sh,   // old bounding box
-                    nx, ny, sw, sh,                         // new bounding box (skip region)
-                    decay
-                )
+            // Push current position into trail buffer
+            const tb = _objTrail[i]
+            for (let ti = OBJ_TRAIL_LEN - 1; ti > 0; ti--) {
+                tb[ti * 2]     = tb[(ti - 1) * 2]
+                tb[ti * 2 + 1] = tb[(ti - 1) * 2 + 1]
             }
+            tb[0] = _objX[i]
+            tb[1] = _objY[i]
 
-            // Save previous position before updating
-            _objPrevX[i] = _objX[i]
-            _objPrevY[i] = _objY[i]
+            _objX[i]  = nx; _objY[i]  = ny
+            _objVX[i] = vx; _objVY[i] = vy
+            _objFlipX[i] = vx < 0
+        }
+    }
+        }
+
+        // Phase 2: advance positions with bounce
+        for (let i = 0; i < _objCount; i++) {
+            if (!_objVisible[i]) continue
+
+            const sid = _objSpriteId[i]
+            const sw = _spriteW[sid]
+            const sh = _spriteH[sid]
+
+            // Compute new position (with bounce)
+            let nx = _objX[i] + _objVX[i]
+            let ny = _objY[i] + _objVY[i]
+            let vx = _objVX[i]
+            let vy = _objVY[i]
+
+            if (nx < 0)        { nx = 0;        vx = -vx }
+            else if (nx > W - sw) { nx = W - sw; vx = -vx }
+            if (ny < 0)        { ny = 0;        vy = -vy }
+            else if (ny > H - sh) { ny = H - sh; vy = -vy }
+
+            // Push current position into trail buffer
+            const tb = _objTrail[i]
+            for (let ti = OBJ_TRAIL_LEN - 1; ti > 0; ti--) {
+                tb[ti * 2]     = tb[(ti - 1) * 2]
+                tb[ti * 2 + 1] = tb[(ti - 1) * 2 + 1]
+            }
+            tb[0] = _objX[i]
+            tb[1] = _objY[i]
 
             _objX[i]  = nx; _objY[i]  = ny
             _objVX[i] = vx; _objVY[i] = vy
@@ -275,7 +333,15 @@ namespace matrixSprites {
     export function setPosition(id: number, x: number, y: number): void {
         if (id < 0 || id >= _objCount) return
         _objX[id] = x; _objY[id] = y
-        _objPrevX[id] = x; _objPrevY[id] = y
+        // Clear trail buffer so no stale trail is left
+        const tb = _objTrail[id]
+        if (tb) {
+            for (let ti = 0; ti < tb.length; ti++) {
+                tb[ti] = -1
+            }
+        }
+    }
+        }
     }
 
     /**
