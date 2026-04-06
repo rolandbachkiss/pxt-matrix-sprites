@@ -191,19 +191,14 @@ namespace matrixSprites {
         _objCount++
         return id
     }
-        _objTrail[id] = trailBuf
-        _objCount++
-        return id
-    }
 
     /**
      * Update all visible objects: integrate positions, bounce at screen edges,
      * and apply trail decay to the pixels the sprite just left.
      *
-     * Trail decay: pixels in the old bounding box that are NOT covered by the
-     * new bounding box are multiplied by the object's decay factor. The overlap
-     * region (covered by both old and new position) is left untouched so the
-     * freshly drawn sprite pixels are not pre-dimmed.
+     * Trail decay: each slot in the object's trail buffer is decayed once per frame.
+     * Only the most recent slot (ti==0) skips the current sprite position to avoid
+     * pre-dimming freshly drawn pixels. Older slots are fully decayed.
      */
     //% blockId=matrix_sprites_update
     //% block="update objects"
@@ -226,7 +221,11 @@ namespace matrixSprites {
                 const tx = tb[ti * 2]
                 const ty = tb[ti * 2 + 1]
                 if (tx < 0) continue
-                matrixCore.decayRegion(tx, ty, sw, sh, nx, ny, sw, sh, decay)
+                if (ti === 0) {
+                    matrixCore.decayRegion(tx, ty, sw, sh, nx, ny, sw, sh, decay)
+                } else {
+                    matrixCore.decayRegion(tx, ty, sw, sh, -999, -999, 0, 0, decay)
+                }
             }
         }
 
@@ -238,42 +237,6 @@ namespace matrixSprites {
             const sw = _spriteW[sid]
             const sh = _spriteH[sid]
 
-            // Compute new position (with bounce)
-            let nx = _objX[i] + _objVX[i]
-            let ny = _objY[i] + _objVY[i]
-            let vx = _objVX[i]
-            let vy = _objVY[i]
-
-            if (nx < 0)        { nx = 0;        vx = -vx }
-            else if (nx > W - sw) { nx = W - sw; vx = -vx }
-            if (ny < 0)        { ny = 0;        vy = -vy }
-            else if (ny > H - sh) { ny = H - sh; vy = -vy }
-
-            // Push current position into trail buffer
-            const tb = _objTrail[i]
-            for (let ti = OBJ_TRAIL_LEN - 1; ti > 0; ti--) {
-                tb[ti * 2]     = tb[(ti - 1) * 2]
-                tb[ti * 2 + 1] = tb[(ti - 1) * 2 + 1]
-            }
-            tb[0] = _objX[i]
-            tb[1] = _objY[i]
-
-            _objX[i]  = nx; _objY[i]  = ny
-            _objVX[i] = vx; _objVY[i] = vy
-            _objFlipX[i] = vx < 0
-        }
-    }
-        }
-
-        // Phase 2: advance positions with bounce
-        for (let i = 0; i < _objCount; i++) {
-            if (!_objVisible[i]) continue
-
-            const sid = _objSpriteId[i]
-            const sw = _spriteW[sid]
-            const sh = _spriteH[sid]
-
-            // Compute new position (with bounce)
             let nx = _objX[i] + _objVX[i]
             let ny = _objY[i] + _objVY[i]
             let vx = _objVX[i]
