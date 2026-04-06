@@ -304,8 +304,6 @@ namespace matrixSprites {
             }
         }
     }
-        }
-    }
 
     /**
      * Change the velocity of an object.
