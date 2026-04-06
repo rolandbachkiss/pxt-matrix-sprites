@@ -508,8 +508,8 @@ namespace matrixSprites {
             const spd = _dotSpeed[i]
             if (spd <= 0) continue  // stopped — trail still decays from phase 1
 
-            const vx = _dotVX[i]
-            const vy = _dotVY[i]
+            let vx = _dotVX[i]
+            let vy = _dotVY[i]
             const tb = _dotTrail[i]
             const tlen = _dotTrailLen[i]
             const r = _dotR[i]
@@ -532,10 +532,10 @@ namespace matrixSprites {
 
                 // Wall bouncing
                 if (_dotBounceWalls[i]) {
-                    if (cx < 0)         { cx = 0;    _dotVX[i] = -_dotVX[i] }
-                    else if (cx >= W)   { cx = W - 1; _dotVX[i] = -_dotVX[i] }
-                    if (cy < 0)         { cy = 0;    _dotVY[i] = -_dotVY[i] }
-                    else if (cy >= H)   { cy = H - 1; _dotVY[i] = -_dotVY[i] }
+                    if (cx < 0)         { cx = 0;    vx = -vx }
+                    else if (cx >= W)   { cx = W - 1; vx = -vx }
+                    if (cy < 0)         { cy = 0;    vy = -vy }
+                    else if (cy >= H)   { cy = H - 1; vy = -vy }
                 }
 
                 // Brightness gradient: first pixel dimmest, last pixel brightest
@@ -545,6 +545,9 @@ namespace matrixSprites {
                 const pb = Math.idiv(b * frac, spd)
                 matrixCore.setPixelXY(cx, cy, pr, pg, pb)
             }
+
+            _dotVX[i] = vx
+            _dotVY[i] = vy
 
             // Dot-to-dot collision (check against all other dots)
             if (_dotBounceDots[i]) {
