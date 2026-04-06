@@ -1,14 +1,21 @@
 /**
- * Sprite bank and moving object system for NeoPixel matrix panels.
- * Depends on matrixCore (pxt-matrix-core).
+ * Sprite bank, moving objects, and trail effects for NeoPixel matrix panels.
  *
- * Trail effect:
- *   Each object has a decay factor (0–255). On each updateObjects() tick,
- *   the pixels that were in the sprite's PREVIOUS bounding box — but are NOT
- *   in the NEW bounding box — are multiplied by the decay factor in _stripBuf.
- *   This leaves a fading trail behind moving sprites without dimming the pixels
- *   under the new sprite position. The visual trail length is controlled solely
- *   by the decay factor (higher = longer trail).
+ * Depends on pxt-matrix-core (pxt-matrix-core).
+ *
+ * Three systems in one extension:
+ *
+ * 1. Sprites — static bitmaps stored in a bank of up to 16 sprites.
+ *    Draw at any position with optional flipping.
+ *
+ * 2. Objects — sprites that move automatically with velocity, wall bouncing,
+ *    and configurable trail decay. Call updateObjects() + drawObjects()
+ *    each frame. The trail buffer ensures old pixels genuinely fade to black.
+ *
+ * 3. Trail Dots — single-pixel animated dots with fading trails, speed
+ *    control (0 = stopped), wall bouncing, and dot-to-dot collision.
+ *    Fast dots (speed > 1) draw every intermediate pixel with a brightness
+ *    gradient so there are no gaps. Call updateTrailDots() each frame.
  */
 
 //% color="#9400D3" weight=80 icon="\uf11b"
@@ -84,8 +91,15 @@ namespace matrixSprites {
     /**
      * Create a sprite from hex-encoded RGB pixel data and add it to the sprite bank.
      * Returns the sprite ID (0-based) for use with drawSprite and addObject.
-     * @param w sprite width in pixels
-     * @param h sprite height in pixels
+     *
+     * Hex format: 6 hex chars per pixel (RRGGBB), row-major order.
+     * Pixels matching the transparent color (default magenta FF00FF) are skipped.
+     *
+     * Example — 3×3 red square:
+     *   "FF0000FF0000FF0000FF0000FF0000FF0000FF0000FF0000FF0000"
+     *
+     * @param w sprite width in pixels (1–32)
+     * @param h sprite height in pixels (1–32)
      * @param hexData hex string, 6 hex chars (RRGGBB) per pixel, row-major order
      */
     //% blockId=matrix_sprites_create
@@ -158,12 +172,22 @@ namespace matrixSprites {
     /**
      * Add a moving object to the scene.
      * Returns the object ID (0-based index).
+     *
+     * The object moves automatically when updateObjects() is called.
+     * It bounces off screen edges and can leave a fading trail behind it.
+     *
+     * Trail decay values:
+     *   255 = no trail (default)
+     *   200 = short comet tail
+     *   100 = medium fading trail
+     *   0   = instant clear behind sprite
+     *
      * @param spriteId sprite ID from createSprite
      * @param x initial x position (pixels)
      * @param y initial y position (pixels)
      * @param vx horizontal velocity (pixels per update tick)
      * @param vy vertical velocity (pixels per update tick)
-     * @param decay trail decay factor 0–255 (255 = no trail, 200 = medium trail, 128 = long trail)
+     * @param decay trail decay factor 0–255 (255 = no trail, 100 = medium, 0 = instant clear)
      */
     //% blockId=matrix_sprites_add_object
     //% block="add object sprite $spriteId at x $x y $y velocity vx $vx vy $vy || decay $decay"
@@ -195,6 +219,10 @@ namespace matrixSprites {
     /**
      * Update all visible objects: integrate positions, bounce at screen edges,
      * and apply trail decay to the pixels the sprite just left.
+     *
+     * Call this once per frame before drawObjects() and updateDisplay().
+     * Do NOT call matrixCore.clear() before this — the trail effect relies
+     * on pixels persisting in the buffer between frames.
      *
      * Trail decay: each slot in the object's trail buffer is decayed once per frame.
      * Only the most recent slot (ti==0) skips the current sprite position to avoid
@@ -359,8 +387,17 @@ namespace matrixSprites {
     /**
      * Create a trail dot — a single pixel that moves with a fading trail.
      * Returns the dot ID (0-based).
-     * @param x starting x position
-     * @param y starting y position
+     *
+     * The dot advances automatically when updateTrailDots() is called.
+     * Fast dots (speed > 1) draw every pixel they pass through with a
+     * brightness gradient, so there are no gaps in the trail.
+     *
+     * Trail length: each slot is decayed once per frame. A pixel at slot k
+     * has been decayed k times. With decay=100, slot 1 is ~39% bright,
+     * slot 2 is ~15%, slot 3 is ~6%, slot 4+ is gone.
+     *
+     * @param x starting x position (0–31)
+     * @param y starting y position (0–31)
      * @param vx horizontal direction: -1 (left), 0 (still), 1 (right)
      * @param vy vertical direction: -1 (up), 0 (still), 1 (down)
      * @param speed pixels moved per update tick (0 = stopped, 1–4 recommended)
